@@ -2,6 +2,10 @@
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
+try:
+    from queue import Empty, Queue
+except ImportError:
+    from Queue import Empty, Queue
 from urllib import urlencode
 import json
 import re
@@ -66,11 +70,13 @@ class Bokelai(Source):
         tags = root.xpath(
             "//li[contains(text(),'本書分類：')]/string()").replace("本書分類：", "").split("&gt; ")
 
+        cover_url = re.match(r'[^&]*', info_json['image']).group(0)
+
         if not authors:
             authors = [_('Unknown')]
 
         mi = Metadata(title, authors)
-        mi.identifiers = {'bokelai': bokelai_id}
+        mi.identifiers = {'bokelai': bokelai_id, 'isbn': isbn}
         mi.publisher = publisher
         mi.comments = comments
         mi.isbn = isbn
@@ -78,9 +84,23 @@ class Bokelai(Source):
         pubdate_list = pubdate.split('/')
         mi.pubdate = (pubdate_list[0], pubdate_list[1],
                       pubdate_list[2], 0, 0, 0, 0, 0, 0)
+        if not cover_url is None:
+            mi.has_bokelai_cover = cover_url
+            self.cache_identifier_to_cover_url(
+                mi.identifiers['bokelai'], mi.has_bokelai_cover)
+        else:
+            mi.has_bokelai_cover = None
+
+        result_queue.put(mi)
 
     def parse_bokelai_query_page(self, log, raw):
-        return list()
+        root = etree.HTML(raw)
+        books_url = root.xpath("form[@id='searchlist']/ul/li/a[@rel='mid_image']/@href/text()")
+        book_ids = list()
+        for url in books_url:
+            bid = re.match(r'(?<=item/)[^/]*',url).group()
+            book_ids.append(bid)
+        return book_ids
 
     def get_book_url(self, identifiers):
 
@@ -89,10 +109,49 @@ class Bokelai(Source):
             return ('bokelai', db, self.BOKELAI_DETAIL_URL % db)
 
     def download_cover(self, log, result_queue, abort, title=None, authors=None, identifiers={}, timeout=30, get_best_cover=False):
-        pass
+        cached_url = self.get_cached_cover_url(identifiers)
+        if cached_url is None:
+            log.info('No cached cover found, running identify')
+            rq = Queue()
+            self.identify(log, rq, abort, title=title,
+                          authors=authors, identifiers=identifiers)
+            if abort.is_set():
+                return
+            results = []
+            while True:
+                try:
+                    results.append(rq.get_nowait())
+                except Empty:
+                    break
+            results.sort(
+                key=self.identify_results_keygen(
+                    title=title, authors=authors, identifiers=identifiers)
+            )
+            for mi in results:
+                cached_url = self.get_cached_cover_url(mi.identifiers)
+                if cached_url is not None:
+                    break
+        if cached_url is None:
+            log.info('No cover found')
+            return
+
+        if abort.is_set():
+            return
+        br = self.browser
+        log('Downloading cover from:', cached_url)
+        try:
+            cdata = br.open_novisit(cached_url, timeout=timeout).read()
+            if cdata:
+                result_queue.put((self, cdata))
+        except:
+            log.exception('Failed to download cover from:', cached_url)
 
     def get_cached_cover_url(self, identifiers):
-        pass
+        url = None
+        bokelai_id = identifiers.get('bokelai', None)
+        if bokelai_id is not None:
+            url = self.cached_identifier_to_cover_url(bokelai_id)
+        return url
 
     def identify(self, log, result_queue, abort, title=None, authors=None, identifiers={}, timeout=30):
 
