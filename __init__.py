@@ -67,8 +67,20 @@ class Bokelai(Source):
         isbn = info_json['workExample']['workExample']['isbn']
         pubdate = info_json['datePublished']
 
-        comments = root.xpath("//div[@class='content']")[0].text
-        tags = root.xpath("//li[contains(text(),'本書分類：')]")[0].text.replace("本書分類：", "").split(">")
+        comments_list = list()
+        for ele in root.xpath("//div[@class='content']/p"):
+            if ele.text is not None:
+                comments_list.append(ele.text)
+            else:
+                comments_list.append("")
+
+        comments = "\n".join(comments_list)
+        
+        tags = list()
+        for ele in root.xpath("//li[contains(text(),'本書分類：')]/a"):
+            log.info(ele.text)
+            tags.append(ele.text)
+        
 
         cover_url = re.search(r'https[^\?\=\&]*'+bokelai_id+r'[^\?\=\&]*', info_json['image']).group(0)
 
@@ -83,9 +95,9 @@ class Bokelai(Source):
         mi.comments = comments
         mi.isbn = isbn
         mi.tags = tags
-        pubdate_list = pubdate.split('/')
         if pubdate:
             try:
+                from calibre.utils.date import parse_date, utcnow
                 default = utcnow().replace(day=15)
                 mi.pubdate = parse_date(pubdate, assume_utc=True, default=default)
             except:
