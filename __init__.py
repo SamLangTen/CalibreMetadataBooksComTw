@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # vim:fileencoding=UTF-8:ts=4:sw=4:sta:et:sts=4:ai
 from __future__ import (unicode_literals, division, absolute_import,
                         print_function)
@@ -6,7 +6,6 @@ try:
     from queue import Empty, Queue
 except ImportError:
     from Queue import Empty, Queue
-from urllib import urlencode
 import json
 import re
 from lxml import etree
@@ -45,6 +44,8 @@ class Bokelai(Source):
     def retrieve_bokelai_detail(self, bokelai_id, log, result_queue, timeout):
 
         detail_url = self.BOKELAI_DETAIL_URL % bokelai_id
+        log.info(detail_url)
+
         try:
             br = self.browser
             _raw = br.open_novisit(detail_url, timeout=timeout)
@@ -55,25 +56,26 @@ class Bokelai(Source):
 
         root = etree.HTML(raw)
         info_json_text = root.xpath(
-            "//script[@type='application/ld+json]/string()")
+            "//script[@type='application/ld+json']")[0].text
+        log.info(info_json_text)
         info_json = json.loads(info_json_text)
 
-        title = info_json['name'].decode('unicode-escape')
-        authors = info_json['author'][0]['name'].decode(
-            'unicode-escape').split(",")
-        publisher = info_json['publisher'][0]['name'].decode(
-            'unicode-escape')
+
+        title = info_json['name']
+        authors = info_json['author'][0]['name'].split(",")
+        publisher = info_json['publisher'][0]['name']
         isbn = info_json['workExample']['workExample']['isbn']
         pubdate = info_json['datePublished']
 
-        comments = root.xpath("//div[@class='content']/string()")
-        tags = root.xpath(
-            "//li[contains(text(),'本書分類：')]/string()").replace("本書分類：", "").split("&gt; ")
+        comments = root.xpath("//div[@class='content']")[0].text
+        tags = root.xpath("//li[contains(text(),'本書分類：')]")[0].text.replace("本書分類：", "").split(">")
 
-        cover_url = re.match(r'[^&]*', info_json['image']).group(0)
+        cover_url = re.search(r'https[^\?\=\&]*'+bokelai_id+r'[^\?\=\&]*', info_json['image']).group(0)
 
         if not authors:
             authors = [_('Unknown')]
+
+        log.info(title,authors,publisher,isbn,pubdate,comments,tags,cover_url)
 
         mi = Metadata(title, authors)
         mi.identifiers = {'bokelai': bokelai_id, 'isbn': isbn}
@@ -82,8 +84,13 @@ class Bokelai(Source):
         mi.isbn = isbn
         mi.tags = tags
         pubdate_list = pubdate.split('/')
-        mi.pubdate = (pubdate_list[0], pubdate_list[1],
-                      pubdate_list[2], 0, 0, 0, 0, 0, 0)
+        if pubdate:
+            try:
+                default = utcnow().replace(day=15)
+                mi.pubdate = parse_date(pubdate, assume_utc=True, default=default)
+            except:
+                log.error('Failed to parse pubdate %r' % pubdate)       
+
         if not cover_url is None:
             mi.has_bokelai_cover = cover_url
             self.cache_identifier_to_cover_url(
@@ -95,10 +102,10 @@ class Bokelai(Source):
 
     def parse_bokelai_query_page(self, log, raw):
         root = etree.HTML(raw)
-        books_url = root.xpath("form[@id='searchlist']/ul/li/a[@rel='mid_image']/@href/text()")
+        books_url = root.xpath("//form[@id='searchlist']/ul/li/a[@rel='mid_image']/@href")
         book_ids = list()
         for url in books_url:
-            bid = re.match(r'(?<=item/)[^/]*',url).group()
+            bid = re.search(r"(?<=item\/)[^\/]*",url).group()
             book_ids.append(bid)
         return book_ids
 
@@ -189,7 +196,31 @@ class Bokelai(Source):
             log.error('No result found.\n', 'query: %s' % search_url)
             return
 
-        for id in candidate_bokelai_id_list:
+        for bid in candidate_bokelai_id_list:
             if abort.is_set:
-                break
-            self.retrieve_bokelai_detail(id, log, result_queue, timeout)
+                log.info("timeout")
+                #break
+            self.retrieve_bokelai_detail(bid, log, result_queue, timeout)
+
+if __name__ == '__main__':  # tests {{{
+    # To run these test use: calibre-debug -e src/calibre/ebooks/metadata/sources/douban.py
+    from calibre.ebooks.metadata.sources.test import (
+        test_identify_plugin, title_test, authors_test
+    )
+    test_identify_plugin(
+        Bokelai.name, [
+            ({
+                'identifiers': {
+                    'isbn': '9789862376836'
+                },
+                'title': '姊嫁物語 01',
+                'authors': ['森薰']
+            }, [title_test('姊嫁物語 01', exact=True),
+                authors_test(['森薰'])]),
+            ({
+                'title': 'Love Live',
+                'authors': ['公野櫻子']
+            }, [title_test('Love Live', exact=False)]),
+        ]
+    )
+# }}}
