@@ -211,8 +211,7 @@ class Bokelai(Source):
 
         for bid in candidate_bokelai_id_list:
             if abort.is_set:
-                log.info("timeout")
-                #break
+                break
             self.retrieve_bokelai_detail(bid, log, result_queue, timeout)
 
 if __name__ == '__main__':  # tests {{{
@@ -228,12 +227,8 @@ if __name__ == '__main__':  # tests {{{
                 },
                 'title': '姊嫁物語 01',
                 'authors': ['森薰']
-            }, [title_test('姊嫁物語 01', exact=True),
-                authors_test(['森薰'])]),
-            ({
-                'title': 'Love Live',
-                'authors': ['公野櫻子']
-            }, [title_test('Love Live', exact=False)]),
+            }, [title_test('姊嫁物語 01', exact=False),
+                authors_test(['森薰'])])
         ]
     )
 # }}}
