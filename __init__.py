@@ -67,19 +67,20 @@ class Bokelai(Source):
         isbn = info_json['workExample']['workExample']['isbn']
         pubdate = info_json['datePublished']
 
-        comments_list = list()
-        for ele in root.xpath("//div[@class='content']/p"):
-            if ele.text is not None:
-                comments_list.append(ele.text)
-            else:
-                comments_list.append("")
+        comments = ""
+        comments_ele = root.xpath("(//div[@class='content'])[1]//text()")
+        comments = "\n".join(comments_ele)
 
-        comments = "\n".join(comments_list)
         
         tags = list()
         for ele in root.xpath("//li[contains(text(),'本書分類：')]/a"):
             log.info(ele.text)
-            tags.append(ele.text)
+            if "／" in ele.text:
+                tags.extend(ele.text.split("／"))
+            if "/" in ele.text:
+                tags.extend(ele.text.split("/"))
+            else:
+                tags.append(ele.text)
         
 
         cover_url = re.search(r'https[^\?\=\&]*'+bokelai_id+r'[^\?\=\&]*', info_json['image']).group(0)
