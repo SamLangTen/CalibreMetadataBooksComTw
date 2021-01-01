@@ -195,7 +195,7 @@ class Bokelai(Source):
             if authors:
                 for author in authors:
                     search_str = search_str + author
-            search_url = self.BOKELAI_QUERY_URL + search_str
+            search_url = self.BOKELAI_QUERY_URL % search_str
         try:
             br = self.browser
             _raw = br.open_novisit(search_url, timeout=timeout)
@@ -211,7 +211,7 @@ class Bokelai(Source):
 
         for bid in candidate_bokelai_id_list:
             if abort.is_set:
-                break
+                pass
             self.retrieve_bokelai_detail(bid, log, result_queue, timeout)
 
 if __name__ == '__main__':  # tests {{{
